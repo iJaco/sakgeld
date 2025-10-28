@@ -78,43 +78,110 @@ def process_auto_deposits():
 # --- Streamlit UI ---
 st.set_page_config(page_title="Kids Pocket Money", page_icon="💰", layout="centered")
 
-st.title("💰 Kids Pocket Money Manager")
+# Custom CSS
+st.markdown("""
+    <style>
+    .main {
+        padding: 2rem;
+    }
+    .stButton button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
+    }
+    .stMetric {
+        padding: 15px;
+        border-radius: 10px;
+        background-color: var(--background-color);
+        border: 1px solid var(--primary-color);
+    }
+    div[data-testid="stDataFrame"] {
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--primary-color);
+    }
+    .stSidebar {
+        background-color: var(--background-color);
+    }
+    h1, h2, h3 {
+        color: var(--text-color);
+    }
+    .metric-card {
+        background-color: var(--background-color);
+        border: 1px solid var(--primary-color);
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("Kids Pocket Money Manager")
 
 # Load data
 df = load_data()
 
 # Sidebar menu
-menu = st.sidebar.radio("📋 Menu", ["🏠 Dashboard", "➕ Add Transaction", "📊 Summary & Charts", "📜 History"])
+menu = st.sidebar.radio("Menu", ["Dashboard", "Add Transaction", "Summary & Charts", "History"])
 
 # --- Dashboard ---
-if menu == "🏠 Dashboard":
+if menu == "Dashboard":
     st.header("Current Balances")
-
+    
     if df.empty:
         st.info("No data yet. Add a transaction to get started.")
     else:
+        st.markdown("### Current Account Status")
         balances = df.groupby("child")["amount"].sum().reset_index().sort_values("child")
-        balances.columns = ["Child", "Balance"]
-        balances["Balance"] = balances["Balance"].map(lambda x: f"R {x:,.2f}")
-        st.dataframe(balances, use_container_width=True)
+        
+        # Create columns for each child
+        cols = st.columns(len(balances))
+        for idx, (_, row) in enumerate(balances.iterrows()):
+            with cols[idx]:
+                st.markdown(f"### {row['child']}")
+                st.metric(
+                    label="Balance",
+                    value=f"R {row['amount']:,.2f}",
+                    delta=f"R {df[df['child'] == row['child']].tail(1)['amount'].values[0]:,.2f} last transaction"
+                )
 
 # --- Add Transaction ---
-elif menu == "➕ Add Transaction":
+elif menu == "Add Transaction":
     st.header("Add or Update Pocket Money")
     
     if not check_password():
         st.warning("Please enter the password to add transactions")
         st.stop()
     
-    kids = sorted(df["child"].unique())
-    option = st.radio("Select Option", ["Choose existing", "Add new"])
-    if option == "Choose existing" and kids:
-        child = st.selectbox("Select child", kids)
-    else:
-        child = st.text_input("Enter new child's name")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        kids = sorted(df["child"].unique())
+        option = st.radio("Select Option", ["Choose existing", "Add new"], 
+                         horizontal=True)
+    
+    with col2:
+        if option == "Choose existing" and kids:
+            child = st.selectbox("Select child", kids,
+                               placeholder="Choose a child")
+        else:
+            child = st.text_input("Enter new child's name",
+                                placeholder="Enter name")
 
-    amount = st.number_input("Amount (positive = add, negative = spend)", step=1.0)
-    reason = st.text_input("Reason (e.g. 'Allowance', 'Candy', 'Chores')")
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        amount = st.number_input(
+            "Amount",
+            step=1.0,
+            help="Positive = add funds, Negative = spend funds"
+        )
+    with col2:
+        reason = st.text_input(
+            "Reason",
+            placeholder="e.g., 'Allowance', 'Candy', 'Chores'"
+        )
 
     if st.button("Save Transaction"):
         if not str(child or "").strip():
@@ -127,40 +194,49 @@ elif menu == "➕ Add Transaction":
             st.balloons()
 
 # --- Summary & Charts ---
-elif menu == "📊 Summary & Charts":
+elif menu == "Summary & Charts":
     st.header("Pocket Money Overview")
 
     if df.empty:
         st.info("No transactions yet. Add some to see the charts.")
     else:
+        st.markdown("---")
         selected_child = st.selectbox("Select child", sorted(df["child"].unique()))
-
+        
         child_data = df[df["child"] == selected_child].sort_values("timestamp")
-
-        # --- Summary stats ---
+        
+        # Enhanced metrics
         total_earned = child_data[child_data["amount"] > 0]["amount"].sum()
         total_spent = child_data[child_data["amount"] < 0]["amount"].sum()
         balance = child_data["amount"].sum()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("💵 Total Earned", f"R {total_earned:,.2f}")
-        col2.metric("🍭 Total Spent", f"R {abs(total_spent):,.2f}")
-        col3.metric("🏦 Current Balance", f"R {balance:,.2f}")
-
-        # --- Chart ---
+        
+        st.markdown("### Financial Overview")
+        cols = st.columns(3)
+        with cols[0]:
+            st.metric("Total Earned", f"R {total_earned:,.2f}",
+                     delta="Income", delta_color="normal")
+        with cols[1]:
+            st.metric("Total Spent", f"R {abs(total_spent):,.2f}",
+                     delta="Expenses", delta_color="inverse")
+        with cols[2]:
+            st.metric("Current Balance", f"R {balance:,.2f}",
+                     delta=f"R {child_data['amount'].iloc[-1]:,.2f} last change")
+        
+        st.markdown("---")
+        st.markdown("### Balance History")
         child_data["running_balance"] = child_data["amount"].cumsum()
         st.line_chart(
             child_data.set_index("timestamp")["running_balance"],
             use_container_width=True,
-            height=300,
+            height=400,
         )
 
         # --- Detail view ---
-        with st.expander("📋 Transaction Details"):
+        with st.expander("Transaction Details"):
             st.dataframe(child_data.sort_values("timestamp", ascending=False), use_container_width=True)
 
 # --- History ---
-elif menu == "📜 History":
+elif menu == "History":
     st.header("All Transactions")
     
     if df.empty:
@@ -181,7 +257,7 @@ elif menu == "📜 History":
                 st.session_state.show_confirm = False
 
             if not st.session_state.show_confirm:
-                if st.button("🗑️ Clear All Data"):
+                if st.button("Clear All Data"):
                     st.session_state.show_confirm = True
                     st.rerun()
             else:
