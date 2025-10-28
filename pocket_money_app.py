@@ -1,12 +1,16 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, date
+from config import load_config, save_config, CONFIG_FILE
 import hashlib
 
+# --- Load configuration ---
+if 'config' not in st.session_state:
+    st.session_state.config = load_config()
+
 # --- Authentication settings ---
-DEFAULT_PASSWORD = "@moeder123"  # Change this to your desired password
-PASSWORD_HASH = hashlib.sha256(DEFAULT_PASSWORD.encode()).hexdigest()
+PASSWORD_HASH = st.session_state.config["password_hash"]
 
 # --- Authentication functions ---
 def check_password():
@@ -53,6 +57,23 @@ def add_transaction(df, child, amount, reason):
 
 def get_balance(df, child):
     return df[df["child"] == child]["amount"].sum()
+
+# --- Auto Deposit Processing ---
+def process_auto_deposits():
+    config = st.session_state.config
+    today = date.today()
+    last_deposit = datetime.strptime(config["last_auto_deposit"], "%Y-%m-%d").date()
+    
+    # Check if we're in a new month compared to last deposit
+    if (today.year, today.month) > (last_deposit.year, last_deposit.month):
+        df = load_data()
+        for child, amount in config["auto_deposits"].items():
+            df = add_transaction(df, child, amount, "Monthly Auto Deposit")
+        
+        config["last_auto_deposit"] = today.strftime("%Y-%m-%d")
+        save_config(config)
+        return True
+    return False
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Kids Pocket Money", page_icon="💰", layout="centered")
@@ -174,3 +195,32 @@ elif menu == "📜 History":
                 if col2.button("No, keep my data"):
                     st.session_state.show_confirm = False
                     st.rerun()
+
+# --- Auto Deposit Settings ---
+if check_password():
+    st.sidebar.markdown("---")
+    st.sidebar.header("Auto Deposit Settings")
+    
+    config = st.session_state.config
+    auto_deposits = config["auto_deposits"]
+    
+    # Show current auto-deposits
+    st.sidebar.subheader("Current Auto-deposits")
+    for child, amount in auto_deposits.items():
+        st.sidebar.text(f"{child}: R{amount}")
+    
+    # Add new auto-deposit
+    st.sidebar.subheader("Add Auto-deposit")
+    new_child = st.sidebar.text_input("Child name")
+    new_amount = st.sidebar.number_input("Monthly amount", min_value=0)
+    
+    if st.sidebar.button("Save Auto-deposit"):
+        if new_child and new_amount > 0:
+            auto_deposits[new_child.strip().title()] = new_amount
+            save_config(config)
+            st.sidebar.success("Auto-deposit configured!")
+            st.rerun()
+
+# Process auto-deposits at the start
+if process_auto_deposits():
+    st.success("Monthly auto-deposits have been processed!")

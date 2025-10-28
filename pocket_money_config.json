@@ -1,0 +1,10 @@
+{
+    "password_hash": "44b455df14d29bcee5164809c96483413b9d1e9836025cdf1e9d2366980a522b",
+    "auto_deposits": {
+        "Example Kid": 100,
+        "Jean": 150,
+        "Armand": 170,
+        "Reinhardt": 170
+    },
+    "last_auto_deposit": "2025-10-28"
+}
